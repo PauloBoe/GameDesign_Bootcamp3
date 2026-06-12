@@ -12,13 +12,17 @@ public class SpidermanRunner : MonoBehaviour
     [Header("Run Speed")]
     public float startSpeed = 5f;
     public float maxSpeed = 20f;
-    public float speedIncreaseRate = 0.1f;              // Permanent speed growth over time
+    public float speedIncreaseRate = 0.1f;
 
-    [Header("Knockback Settings")]
-    [Tooltip("How much speed Spider-Man loses instantly when hitting a box.")]
-    public float knockbackSpeedLoss = 5f;
-    [Tooltip("How fast he recovers his speed. A higher value means he gets back to full speed faster.")]
-    public float speedRecoveryRate = 12f;              // High value = snaps back to full speed within ~1 second
+    [Header("Visual Knockback Settings")]
+    [Tooltip("How many units backward Spider-Man gets instantly pushed.")]
+    public float knockbackDistance = 1.5f;
+    [Tooltip("How fast he snaps / recovers forward back to his normal running position.")]
+    public float knockbackRecoverSpeed = 8f;
+    [Tooltip("How much speed his forward momentum loses during impact.")]
+    public float knockbackSpeedLoss = 4f;
+    [Tooltip("How fast his speedometer recovers.")]
+    public float speedRecoveryRate = 12f;
 
     [Header("Jump")]
     public float jumpForce = 8f;
@@ -31,10 +35,13 @@ public class SpidermanRunner : MonoBehaviour
     // ── Private ──
     private Rigidbody rb;
     private int currentLane = 1;
-    private float currentSpeed;                         // The actual speed applied to the player
-    private float targetSpeed;                          // The baseline speed the player *should* be at
+    private float currentSpeed;
+    private float targetSpeed;
     private bool isAlive = true;
     private bool isGrounded;
+
+    // Knockback offset logic
+    private float currentZOffset = 0f;
 
     private Keyboard kb;
 
@@ -62,6 +69,7 @@ public class SpidermanRunner : MonoBehaviour
         HandleInput();
         SmoothLaneSnap();
         CalculateSpeed();
+        HandleKnockbackRecovery();
 
         score = Mathf.FloorToInt(transform.position.z);
     }
@@ -79,15 +87,25 @@ public class SpidermanRunner : MonoBehaviour
         rb.linearVelocity = vel;
     }
 
-    // ── New Speed Management ──────────────────────────────────────────────────
     void CalculateSpeed()
     {
-        // 1. Gradually increase the baseline max speed over time (normal runner progression)
         targetSpeed = Mathf.Min(targetSpeed + speedIncreaseRate * Time.deltaTime, maxSpeed);
-
-        // 2. Smoothly catch currentSpeed up to targetSpeed. 
-        // If currentSpeed dropped from a box, this forces it to rapidly climb back up.
         currentSpeed = Mathf.MoveTowards(currentSpeed, targetSpeed, speedRecoveryRate * Time.deltaTime);
+    }
+
+    // ── Handle the physical visual slide back ─────────────────────────────────
+    void HandleKnockbackRecovery()
+    {
+        if (currentZOffset < 0f)
+        {
+            // Smoothly move the offset back to 0 over time
+            float previousOffset = currentZOffset;
+            currentZOffset = Mathf.MoveTowards(currentZOffset, 0f, knockbackRecoverSpeed * Time.deltaTime);
+
+            // Physically apply the change in offset to the player's position
+            float offsetDelta = currentZOffset - previousOffset;
+            transform.position += new Vector3(0f, 0f, offsetDelta);
+        }
     }
 
     void HandleInput()
@@ -145,13 +163,17 @@ public class SpidermanRunner : MonoBehaviour
         }
     }
 
-    // ── Tweaked Knockback Logic ───────────────────────────────────────────────
+    // ── Physical Knockback Trigger ────────────────────────────────────────────
     void ApplyKnockback()
     {
-        // Instantly slash current speed, but don't drop below a minimum crawl (e.g., 3f)
+        // 1. Instantly drop forward speed meter
         currentSpeed = Mathf.Max(currentSpeed - knockbackSpeedLoss, 3f);
 
-        Debug.Log($"Slammed a box! Dropped to {currentSpeed:F1}. Recovering back to {targetSpeed:F1}...");
+        // 2. Teleport him back visually by a few units instantly
+        currentZOffset -= knockbackDistance;
+        transform.position -= new Vector3(0f, 0f, knockbackDistance);
+
+        Debug.Log("Smashed box! Stumbled backward physically.");
     }
 
     void Die()
@@ -167,6 +189,7 @@ public class SpidermanRunner : MonoBehaviour
         currentLane = 1;
         targetSpeed = startSpeed;
         currentSpeed = startSpeed;
+        currentZOffset = 0f;
         coins = 0;
         score = 0;
         isAlive = true;
