@@ -144,7 +144,7 @@ public class SpidermanRunner : MonoBehaviour
     {
         if (other.CompareTag("Obstacle"))
         {
-            Die();
+            ApplyKnockback();
         }
         else if (other.CompareTag("Coin"))
         {

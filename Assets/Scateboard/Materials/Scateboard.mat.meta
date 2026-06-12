@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: db2fddbf2f6551749aed77971b0c4c03
+timeCreated: 1474621360
+licenseType: Store
+NativeFormatImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 72179
+  packageName: Realistic Scateboard
+  packageVersion: 1.0
+  assetPath: Assets/Scateboard/Materials/Scateboard.mat
+  uploadId: 139706
