@@ -1,29 +1,24 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-/// <summary>
-/// Spider-Man Unlimited - Simple Endless Runner (Unity 6 + New Input System)
-/// Handles: Auto-run, lane switching, obstacle detection, speed progression, coin pickups
-///
-/// SETUP:
-///   1. Attach to Player GameObject
-///   2. Set the 3 Lane X positions in the Inspector
-///   3. Tag obstacles as "Obstacle", coins as "Coin"
-///   4. Add a Rigidbody + CapsuleCollider to the player
-///   5. Set groundLayer to your ground layer mask
-/// </summary>
 [RequireComponent(typeof(Rigidbody))]
 [RequireComponent(typeof(CapsuleCollider))]
 public class SpidermanRunner : MonoBehaviour
 {
     [Header("Lane Settings")]
-    public float[] laneXPositions = { -2f, 0f, 2f };   // Left, Center, Right
+    public float[] laneXPositions = { -2f, 0f, 2f };
     public float laneSwitchSpeed = 10f;
 
     [Header("Run Speed")]
     public float startSpeed = 5f;
     public float maxSpeed = 20f;
-    public float speedIncreaseRate = 0.1f;              // Units per second
+    public float speedIncreaseRate = 0.1f;              // Permanent speed growth over time
+
+    [Header("Knockback Settings")]
+    [Tooltip("How much speed Spider-Man loses instantly when hitting a box.")]
+    public float knockbackSpeedLoss = 5f;
+    [Tooltip("How fast he recovers his speed. A higher value means he gets back to full speed faster.")]
+    public float speedRecoveryRate = 12f;              // High value = snaps back to full speed within ~1 second
 
     [Header("Jump")]
     public float jumpForce = 8f;
@@ -35,12 +30,12 @@ public class SpidermanRunner : MonoBehaviour
 
     // ── Private ──
     private Rigidbody rb;
-    private int currentLane = 1;                        // Start center lane
-    private float currentSpeed;
+    private int currentLane = 1;
+    private float currentSpeed;                         // The actual speed applied to the player
+    private float targetSpeed;                          // The baseline speed the player *should* be at
     private bool isAlive = true;
     private bool isGrounded;
 
-    // ── New Input System: keyboard reference ──────────────────────────────────
     private Keyboard kb;
 
     void Awake()
@@ -52,20 +47,22 @@ public class SpidermanRunner : MonoBehaviour
 
     void Start()
     {
+        targetSpeed = startSpeed;
         currentSpeed = startSpeed;
-        kb = Keyboard.current;                          // Grab current keyboard device
+        kb = Keyboard.current;
     }
 
     void Update()
     {
         if (!isAlive) return;
 
-        kb = Keyboard.current;                          // Re-check each frame (device may reconnect)
+        kb = Keyboard.current;
         if (kb == null) return;
 
         HandleInput();
         SmoothLaneSnap();
-        RampSpeed();
+        CalculateSpeed();
+
         score = Mathf.FloorToInt(transform.position.z);
     }
 
@@ -75,7 +72,6 @@ public class SpidermanRunner : MonoBehaviour
         AutoRun();
     }
 
-    // ── Auto run forward ──────────────────────────────────────────────────────
     void AutoRun()
     {
         Vector3 vel = rb.linearVelocity;
@@ -83,24 +79,24 @@ public class SpidermanRunner : MonoBehaviour
         rb.linearVelocity = vel;
     }
 
-    // ── Speed ramp ────────────────────────────────────────────────────────────
-    void RampSpeed()
+    // ── New Speed Management ──────────────────────────────────────────────────
+    void CalculateSpeed()
     {
-        currentSpeed = Mathf.Min(currentSpeed + speedIncreaseRate * Time.deltaTime, maxSpeed);
+        // 1. Gradually increase the baseline max speed over time (normal runner progression)
+        targetSpeed = Mathf.Min(targetSpeed + speedIncreaseRate * Time.deltaTime, maxSpeed);
+
+        // 2. Smoothly catch currentSpeed up to targetSpeed. 
+        // If currentSpeed dropped from a box, this forces it to rapidly climb back up.
+        currentSpeed = Mathf.MoveTowards(currentSpeed, targetSpeed, speedRecoveryRate * Time.deltaTime);
     }
 
-    // ── Input (New Input System) ──────────────────────────────────────────────
     void HandleInput()
     {
-        // Lane left
         if (kb.leftArrowKey.wasPressedThisFrame || kb.aKey.wasPressedThisFrame) ShiftLane(-1);
-        // Lane right
         if (kb.rightArrowKey.wasPressedThisFrame || kb.dKey.wasPressedThisFrame) ShiftLane(1);
-        // Jump
         if (kb.spaceKey.wasPressedThisFrame || kb.wKey.wasPressedThisFrame) TryJump();
     }
 
-    // ── Lane switching ────────────────────────────────────────────────────────
     void ShiftLane(int direction)
     {
         currentLane = Mathf.Clamp(currentLane + direction, 0, laneXPositions.Length - 1);
@@ -114,7 +110,6 @@ public class SpidermanRunner : MonoBehaviour
         transform.position = pos;
     }
 
-    // ── Jump ──────────────────────────────────────────────────────────────────
     void TryJump()
     {
         isGrounded = Physics.Raycast(transform.position, Vector3.down, 1.1f, groundLayer);
@@ -127,7 +122,6 @@ public class SpidermanRunner : MonoBehaviour
         rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
     }
 
-    // ── Collision detection ───────────────────────────────────────────────────
     void OnTriggerEnter(Collider other)
     {
         if (other.CompareTag("Obstacle"))
@@ -140,9 +134,26 @@ public class SpidermanRunner : MonoBehaviour
             other.gameObject.SetActive(false);
             Debug.Log("Coin collected! Total: " + coins);
         }
+        else if (other.CompareTag("Box"))
+        {
+            BreakableBox box = other.GetComponent<BreakableBox>();
+            if (box != null)
+            {
+                box.Break();
+                ApplyKnockback();
+            }
+        }
     }
 
-    // ── Death ─────────────────────────────────────────────────────────────────
+    // ── Tweaked Knockback Logic ───────────────────────────────────────────────
+    void ApplyKnockback()
+    {
+        // Instantly slash current speed, but don't drop below a minimum crawl (e.g., 3f)
+        currentSpeed = Mathf.Max(currentSpeed - knockbackSpeedLoss, 3f);
+
+        Debug.Log($"Slammed a box! Dropped to {currentSpeed:F1}. Recovering back to {targetSpeed:F1}...");
+    }
+
     void Die()
     {
         isAlive = false;
@@ -150,11 +161,11 @@ public class SpidermanRunner : MonoBehaviour
         Debug.Log("Hit obstacle! Score: " + score + " | Coins: " + coins);
     }
 
-    // ── Public reset ──────────────────────────────────────────────────────────
     public void ResetPlayer(Vector3 startPosition)
     {
         transform.position = startPosition;
         currentLane = 1;
+        targetSpeed = startSpeed;
         currentSpeed = startSpeed;
         coins = 0;
         score = 0;
@@ -162,7 +173,6 @@ public class SpidermanRunner : MonoBehaviour
         rb.linearVelocity = Vector3.zero;
     }
 
-    // ── Debug UI ──────────────────────────────────────────────────────────────
     void OnGUI()
     {
         GUI.Label(new Rect(10, 10, 200, 20), "Score: " + score);
